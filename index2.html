@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Chord Progression Generator</title>
+<style>
+  /* Layout: one centered column. Controls on top (key grid, then two segmented pairs), result cards below.
+     Regular harmony uses the teal hue, Dark harmony swaps the working hue to plum. */
+  :root {
+    --bg: #EEF0F6;
+    --surface: #FFFFFF;
+    --fg: #12152B;
+    --muted: #5A5F7A;
+    --line: #D5D9E6;
+    --regular: #0F766E;
+    --dusk: #7C2D6B;
+    --on-hue: #FFFFFF;
+    --hue: var(--regular);
+    --font-display: "Avenir Next", "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E1020;
+      --surface: #171A30;
+      --fg: #ECEEFA;
+      --muted: #9AA0BF;
+      --line: #2A2E4B;
+      --regular: #2DD4BF;
+      --dusk: #E879C6;
+      --on-hue: #0E1020;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1020;
+    --surface: #171A30;
+    --fg: #ECEEFA;
+    --muted: #9AA0BF;
+    --line: #2A2E4B;
+    --regular: #2DD4BF;
+    --dusk: #E879C6;
+    --on-hue: #0E1020;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-display);
+    font-size: 16px;
+    line-height: 1.4;
+    padding-top: max(28px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(40px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    -webkit-tap-highlight-color: transparent;
+  }
+  button { font: inherit; color: inherit; touch-action: manipulation; cursor: pointer; }
+  button:focus-visible { outline: 3px solid var(--hue); outline-offset: 2px; }
+
+  .app { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  .app[data-flavor="dark"] { --hue: var(--dusk); }
+
+  h1 { margin: 0; font-size: clamp(1.6rem, 5vw, 2.2rem); line-height: 1.1; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+  .sub { margin: 6px 0 0; color: var(--muted); font-size: 0.95rem; }
+
+  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+  legend, .label {
+    padding: 0; margin-bottom: 10px;
+    font-family: var(--font-mono); font-size: 0.75rem; font-weight: 500;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+  }
+  .controls { display: flex; flex-direction: column; gap: 22px; }
+  .keys { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  @media (max-width: 460px) { .keys { grid-template-columns: repeat(4, 1fr); } }
+
+  .pill {
+    min-height: 52px; padding: 0 10px;
+    background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px;
+    font-size: 1.15rem; font-weight: 500; text-align: center;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .pill[aria-pressed="true"] { background: var(--hue); border-color: var(--hue); color: var(--on-hue); font-weight: 700; }
+
+  .pairs { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 560px) { .pairs { grid-template-columns: 1fr; } }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .result { display: flex; flex-direction: column; gap: 16px; }
+  .counts { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
+  @media (max-width: 460px) { .counts { grid-template-columns: repeat(4, 1fr); } }
+
+  .chords { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); gap: 10px; }
+  @media (max-width: 560px) { .chords { grid-template-columns: repeat(var(--cols-sm, 2), 1fr); } }
+
+  .chord {
+    min-width: 0;
+    background: var(--surface); border: 1.5px solid var(--line); border-radius: 16px;
+    padding: 18px 12px 14px; text-align: center;
+    display: flex; flex-direction: column; gap: 6px;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+  }
+  .chord .name { font-size: clamp(1.7rem, 6vw, 2.4rem); font-weight: 700; line-height: 1.05; color: var(--hue); overflow-wrap: anywhere; }
+  .chord .roman { font-family: var(--font-mono); font-size: 0.95rem; color: var(--muted); }
+  .chord .beat { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; color: var(--muted); }
+  .chord.on { background: var(--hue); border-color: var(--hue); transform: scale(1.03); }
+  .chord.on .name, .chord.on .roman, .chord.on .beat { color: var(--on-hue); }
+
+  .meta { font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); }
+  #plain { font-family: var(--font-mono); font-size: 0.95rem; padding: 12px 14px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+
+  .actions { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+  @media (max-width: 460px) { .actions { grid-template-columns: 1fr 1fr; } .actions .primary { grid-column: 1 / -1; } }
+  .btn {
+    min-height: 56px; border-radius: 14px; border: 1.5px solid var(--line);
+    background: var(--surface); font-size: 1.05rem; font-weight: 700;
+  }
+  .btn.primary { background: var(--hue); border-color: var(--hue); color: var(--on-hue); }
+  .status { min-height: 1.3em; font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+    .chord.on { transform: none; }
+  }
+</style>
+</head>
+<body>
+<main class="app" id="app" data-flavor="regular">
+  <header>
+    <h1>Chord Progression Generator</h1>
+    <p class="sub">Pick a key, a mode and a harmony style. Tap Regenerate until one sticks.</p>
+  </header>
+
+  <section class="controls">
+    <fieldset>
+      <legend>Key</legend>
+      <div class="keys" id="keys"></div>
+    </fieldset>
+    <div class="pairs">
+      <fieldset>
+        <legend>Mode</legend>
+        <div class="seg" id="modes"></div>
+      </fieldset>
+      <fieldset>
+        <legend>Harmony</legend>
+        <div class="seg" id="flavors"></div>
+      </fieldset>
+    </div>
+    <fieldset>
+      <legend>Number of chords</legend>
+      <div class="counts" id="counts"></div>
+    </fieldset>
+  </section>
+
+  <section class="result" aria-labelledby="result-label">
+    <div class="label" id="result-label">Progression</div>
+    <div class="chords" id="chords"></div>
+    <div class="meta" id="meta"></div>
+    <div id="plain"></div>
+    <div class="actions">
+      <button class="btn primary" id="regen" type="button">Regenerate</button>
+      <button class="btn" id="play" type="button">Play</button>
+      <button class="btn" id="copy" type="button">Copy</button>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var KEYS = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+  var SHARPS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  var FLATS = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+  var FLAT_MAJOR = ["F", "Bb", "Eb", "Ab", "Db"];
+  var FLAT_MINOR = ["D", "G", "C", "F", "Bb", "Eb", "Ab"];
+
+  var INTERVALS = {
+    "": [0, 4, 7], "m": [0, 3, 7], "dim": [0, 3, 6], "7": [0, 4, 7, 10],
+    "maj7": [0, 4, 7, 11], "m7": [0, 3, 7, 10], "m7b5": [0, 3, 6, 10], "m(maj7)": [0, 3, 7, 11]
+  };
+
+  // Each chord: [semitones above tonic, suffix, roman numeral]
+  var PROGS = {
+    "Major|Regular": [
+      [[0, "", "I"], [7, "", "V"], [9, "m", "vi"], [5, "", "IV"]],
+      [[0, "", "I"], [9, "m", "vi"], [5, "", "IV"], [7, "", "V"]],
+      [[9, "m", "vi"], [5, "", "IV"], [0, "", "I"], [7, "", "V"]],
+      [[0, "", "I"], [4, "m", "iii"], [5, "", "IV"], [7, "", "V"]],
+      [[2, "m7", "ii7"], [7, "7", "V7"], [0, "maj7", "Imaj7"], [9, "m7", "vi7"]],
+      [[0, "maj7", "Imaj7"], [5, "maj7", "IVmaj7"], [2, "m7", "ii7"], [7, "7", "V7"]],
+      [[0, "", "I"], [5, "", "IV"], [0, "", "I"], [7, "", "V"]]
+    ],
+    "Major|Dark": [
+      [[0, "", "I"], [8, "", "bVI"], [10, "", "bVII"], [0, "", "I"]],
+      [[0, "maj7", "Imaj7"], [5, "m", "iv"], [8, "maj7", "bVImaj7"], [7, "", "V"]],
+      [[0, "", "I"], [3, "", "bIII"], [8, "", "bVI"], [5, "", "IV"]],
+      [[0, "", "I"], [10, "", "bVII"], [8, "", "bVI"], [7, "", "V"]],
+      [[0, "maj7", "Imaj7"], [8, "maj7", "bVImaj7"], [5, "m", "iv"], [10, "7", "bVII7"]],
+      [[0, "", "I"], [5, "m", "iv"], [0, "", "I"], [7, "", "V"]],
+      [[9, "m", "vi"], [8, "maj7", "bVImaj7"], [5, "m7", "iv7"], [0, "", "I"]]
+    ],
+    "Minor|Regular": [
+      [[0, "m", "i"], [8, "", "bVI"], [3, "", "bIII"], [10, "", "bVII"]],
+      [[0, "m", "i"], [5, "m", "iv"], [10, "", "bVII"], [3, "", "bIII"]],
+      [[0, "m", "i"], [10, "", "bVII"], [8, "", "bVI"], [10, "", "bVII"]],
+      [[0, "m", "i"], [5, "m", "iv"], [7, "", "V"], [0, "m", "i"]],
+      [[2, "m7b5", "iø7"], [7, "7", "V7"], [0, "m", "i"], [5, "m", "iv"]],
+      [[0, "m7", "i7"], [5, "m7", "iv7"], [10, "7", "bVII7"], [3, "maj7", "bIIImaj7"]],
+      [[0, "m", "i"], [3, "", "bIII"], [10, "", "bVII"], [5, "", "IV"]]
+    ],
+    "Minor|Dark": [
+      [[0, "m", "i"], [1, "maj7", "bIImaj7"], [0, "m", "i"], [10, "", "bVII"]],
+      [[0, "m", "i"], [8, "maj7", "bVImaj7"], [5, "m7", "iv7"], [7, "7", "V7"]],
+      [[0, "m", "i"], [1, "", "bII"], [10, "", "bVII"], [8, "", "bVI"]],
+      [[0, "m", "i"], [10, "", "bVII"], [8, "", "bVI"], [7, "", "V"]],
+      [[0, "m(maj7)", "i(maj7)"], [8, "maj7", "bVImaj7"], [5, "m7", "iv7"], [7, "7", "V7"]],
+      [[0, "m", "i"], [6, "dim", "bV°"], [8, "maj7", "bVImaj7"], [7, "7", "V7"]],
+      [[0, "m", "i"], [8, "", "bVI"], [1, "", "bII"], [7, "", "V"]],
+      [[0, "m7", "i7"], [3, "dim", "bIII°"], [5, "m7", "iv7"], [0, "m7", "i7"]]
+    ]
+  };
+
+  var state = { key: "C", mode: "Major", flavor: "Regular", count: 4 };
+  var lastSig = "";
+  var current = null;      // { chords: [...], plain: "...", display: "..." }
+  var playing = false;
+  var timers = [];
+  var audio = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var fmt = function (s) { return s.replace(/b/g, "♭").replace(/#/g, "♯"); };
+
+  try {
+    var saved = JSON.parse(localStorage.getItem("chordgen") || "{}");
+    if (KEYS.indexOf(saved.key) > -1) state.key = saved.key;
+    if (saved.mode === "Major" || saved.mode === "Minor") state.mode = saved.mode;
+    if (saved.flavor === "Regular" || saved.flavor === "Dark") state.flavor = saved.flavor;
+    if (saved.count >= 1 && saved.count <= 8) state.count = Math.floor(saved.count);
+  } catch (e) {}
+
+  function save() {
+    try { localStorage.setItem("chordgen", JSON.stringify(state)); } catch (e) {}
+  }
+
+  function makePill(container, label, isOn, onTap) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "pill";
+    b.textContent = label;
+    b.setAttribute("aria-pressed", isOn ? "true" : "false");
+    b.addEventListener("click", onTap);
+    container.appendChild(b);
+    return b;
+  }
+
+  function renderControls() {
+    var k = $("keys"), m = $("modes"), f = $("flavors"), n = $("counts");
+    k.innerHTML = ""; m.innerHTML = ""; f.innerHTML = ""; n.innerHTML = "";
+    for (var c = 1; c <= 8; c++) {
+      (function (num) {
+        makePill(n, String(num), num === state.count, function () { state.count = num; changed(); });
+      })(c);
+    }
+    KEYS.forEach(function (name) {
+      makePill(k, fmt(name), name === state.key, function () { state.key = name; changed(); });
+    });
+    ["Major", "Minor"].forEach(function (name) {
+      makePill(m, name, name === state.mode, function () { state.mode = name; changed(); });
+    });
+    ["Regular", "Dark"].forEach(function (name) {
+      makePill(f, name, name === state.flavor, function () { state.flavor = name; changed(); });
+    });
+    $("app").setAttribute("data-flavor", state.flavor.toLowerCase());
+  }
+
+  function changed() {
+    save();
+    lastSig = "";
+    renderControls();
+    generate();
+  }
+
+  function spelling() {
+    var flats = state.mode === "Major" ? FLAT_MAJOR.indexOf(state.key) > -1 : FLAT_MINOR.indexOf(state.key) > -1;
+    return flats ? FLATS : SHARPS;
+  }
+
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  // Random ordered subset of k chords; keepFirst always includes the first chord.
+  function subset(arr, k, keepFirst) {
+    var idx = [];
+    for (var i = keepFirst ? 1 : 0; i < arr.length; i++) idx.push(i);
+    for (var j = idx.length - 1; j > 0; j--) {
+      var r = Math.floor(Math.random() * (j + 1));
+      var t = idx[j]; idx[j] = idx[r]; idx[r] = t;
+    }
+    var chosen = idx.slice(0, keepFirst ? k - 1 : k);
+    if (keepFirst) chosen.push(0);
+    chosen.sort(function (a, b) { return a - b; });
+    return chosen.map(function (i) { return arr[i]; });
+  }
+
+  // 4 chords: a curated progression. 1: a home chord. 2-3: a curated progression thinned out.
+  // 5-8: one curated progression followed by part (or all) of a second one.
+  function build(list, n) {
+    if (n === 4) return pick(list).slice();
+    if (n === 1) {
+      var homes = [];
+      list.forEach(function (p) { p.forEach(function (c) { if (c[0] === 0) homes.push(c); }); });
+      return [pick(homes)];
+    }
+    if (n < 4) return subset(pick(list), n, true);
+    var a = pick(list), b, extra, tries = 0;
+    do {
+      b = pick(list);
+      extra = n === 8 ? b : subset(b, n - 4, false);
+      tries++;
+    } while (tries < 20 && ((extra[0][0] === a[3][0] && extra[0][1] === a[3][1]) || (b === a && list.length > 1)));
+    return a.concat(extra);
+  }
+
+  function generate() {
+    stopPlayback();
+    var list = PROGS[state.mode + "|" + state.flavor];
+    var raw, sig, tries = 0;
+    do {
+      raw = build(list, state.count);
+      sig = raw.map(function (c) { return c[0] + c[1]; }).join("|");
+      tries++;
+    } while (sig === lastSig && tries < 40);
+    lastSig = sig;
+
+    var tonic = KEYS.indexOf(state.key);
+    var names = spelling();
+    var chords = raw.map(function (c) {
+      var pc = (tonic + c[0]) % 12;
+      return { pc: pc, suffix: c[1], name: names[pc] + c[1], roman: c[2] };
+    });
+
+    var plainNames = chords.map(function (c) { return c.name; }).join(" - ");
+    var plainRoman = chords.map(function (c) { return c.roman; }).join(" - ");
+    current = { chords: chords, copy: plainNames + "   (" + plainRoman + ")" };
+
+    var box = $("chords");
+    box.innerHTML = "";
+    box.style.setProperty("--cols", String(Math.min(chords.length, 4)));
+    box.style.setProperty("--cols-sm", String(chords.length === 1 ? 1 : 2));
+    chords.forEach(function (c, i) {
+      var d = document.createElement("div");
+      d.className = "chord";
+      d.innerHTML = '<div class="beat">BAR ' + (i + 1) + '</div><div class="name"></div><div class="roman"></div>';
+      d.querySelector(".name").textContent = fmt(c.name);
+      d.querySelector(".roman").textContent = fmt(c.roman);
+      box.appendChild(d);
+    });
+    $("meta").textContent = fmt(state.key) + " " + state.mode.toLowerCase() + " · " + state.flavor.toLowerCase() + " harmony";
+    $("plain").textContent = fmt(plainNames) + "   (" + fmt(plainRoman) + ")";
+    setStatus("");
+  }
+
+  function setStatus(t) { $("status").textContent = t; }
+
+  /* Playback with Web Audio. Starts from a tap, as iOS requires. */
+  function freq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+
+  function playChord(ctx, c, when, dur) {
+    var root = 48 + c.pc;
+    var notes = INTERVALS[c.suffix].map(function (i) { return root + i + 12; });
+    notes.push(root - 12 + 12);
+    var master = ctx.createGain();
+    master.gain.value = 0.22 / notes.length * 2;
+    master.connect(ctx.destination);
+    notes.forEach(function (m) {
+      var o = ctx.createOscillator();
+      var g = ctx.createGain();
+      o.type = "triangle";
+      o.frequency.value = freq(m);
+      g.gain.setValueAtTime(0.0001, when);
+      g.gain.exponentialRampToValueAtTime(1, when + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      o.connect(g); g.connect(master);
+      o.start(when); o.stop(when + dur + 0.05);
+    });
+  }
+
+  function setActive(i) {
+    var cards = $("chords").children;
+    for (var n = 0; n < cards.length; n++) cards[n].classList.toggle("on", n === i);
+  }
+
+  function stopPlayback() {
+    timers.forEach(clearTimeout);
+    timers = [];
+    if (audio) { try { audio.close(); } catch (e) {} audio = null; }
+    playing = false;
+    setActive(-1);
+    var p = $("play");
+    if (p) p.textContent = "Play";
+  }
+
+  function startPlayback() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { setStatus("This browser can't play audio."); return; }
+    try {
+      audio = new AC();
+      if (audio.resume) audio.resume();
+    } catch (e) { setStatus("Audio couldn't start."); return; }
+    playing = true;
+    $("play").textContent = "Stop";
+    var dur = 1.5, t0 = audio.currentTime + 0.1;
+    current.chords.forEach(function (c, i) {
+      playChord(audio, c, t0 + i * dur, dur);
+      timers.push(setTimeout(function () { setActive(i); }, 100 + i * dur * 1000));
+    });
+    timers.push(setTimeout(stopPlayback, 100 + current.chords.length * dur * 1000));
+    setStatus("If you hear nothing, check the silent switch and volume.");
+  }
+
+  $("play").addEventListener("click", function () {
+    if (playing) stopPlayback(); else startPlayback();
+  });
+  $("regen").addEventListener("click", generate);
+
+  function selectPlain() {
+    try {
+      var r = document.createRange();
+      r.selectNodeContents($("plain"));
+      var s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    } catch (e) {}
+  }
+
+  $("copy").addEventListener("click", function () {
+    var text = current.copy;
+    var fail = function () { selectPlain(); setStatus("Couldn't copy automatically. The progression is selected, so use Copy from the menu."); };
+    try {
+      navigator.clipboard.writeText(text).then(function () { setStatus("Copied to the clipboard."); }, fail);
+    } catch (e) { fail(); }
+  });
+
+  renderControls();
+  generate();
+})();
+</script>
+</body>
+</html>
